@@ -1,0 +1,120 @@
+import rclpy
+from rclpy.node import Node
+
+from std_msgs.msg import Float32
+from nav_msgs.msg import Odometry
+from darknet_ros_msgs.msg import BoundingBoxes
+
+import cv2
+import numpy as np
+
+class Localization(Node):
+    def __init__(self):
+        super().__init__('localization')
+        self.subscriber_darknet = self.create_subscription(BoundingBoxes, 'darknet_ros/bounding_boxes', self.callbackBoundingBox, 1)
+        self.subscriber_ballDis = self.create_subscription(Float32, 'ball_distance', self.callbackBallDistance, 1)
+        self.timer = self.create_timer(0.1, self.timer_callback)
+
+        self.ballDis = 0
+        self.Ball_X = self.Ball_Y = self.Pinalty_X = self.Pinalty_Y = self.Left_X_Cross_X = self.Left_X_Cross_Y = self.Right_X_Cross_X = self.Right_X_Cross_Y = -1
+        self.Left_T_Cross_X = self.Left_T_Cross_Y = self.Right_T_Cross_X = self.Right_T_Cross_Y = self.Left_Corner_X = self.Left_Corner_Y = -1
+        self.Pinalty_X = self.Pinalty_Y = self.Right_Corner_X = self.Right_Corner_Y = self.Robot_X = self.Robot_Y = self.goal_L_pole_X = self.goal_L_pole_Y = -1
+        self.goal_R_pole_X = self.goal_R_pole_Y = -1
+
+    def callbackBoundingBox(self, msg):
+        self.Ball_X = self.Ball_Y = self.Pinalty_X = self.Pinalty_Y = self.Left_X_Cross_X = self.Left_X_Cross_Y = self.Right_X_Cross_X = self.Right_X_Cross_Y = -1
+        self.Left_T_Cross_X = self.Left_T_Cross_Y = self.Right_T_Cross_X = self.Right_T_Cross_Y = self.Left_Corner_X = self.Left_Corner_Y = -1
+        self.Pinalty_X = self.Pinalty_Y = self.Right_Corner_X = self.Right_Corner_Y = self.Robot_X = self.Robot_Y = self.goal_L_pole_X = self.goal_L_pole_Y = -1
+        self.goal_R_pole_X = self.goal_R_pole_Y = -1
+        for bbox in msg.bounding_boxes:
+            id_class = bbox.id
+            x_center = (bbox.xmin + bbox.xmax) / 2
+            y_center = (bbox.ymin + bbox.ymax) / 2
+            if id_class == 0:
+                self.Left_X_Cross_X = x_center
+                self.Left_X_Cross_Y = y_center
+                continue
+            elif id_class == 1:
+                self.Right_X_Cross_X = x_center
+                self.Right_X_Cross_Y = y_center
+                continue
+            elif id_class == 2:
+                self.Left_T_Cross_X = x_center
+                self.Left_T_Cross_Y = y_center
+                continue
+            elif id_class == 3:
+                self.Right_T_Cross_X = x_center
+                self.Right_T_Cross_Y = y_center
+                continue
+            elif id_class == 4:
+                self.Left_Corner_X = x_center
+                self.Left_Corner_Y = y_center
+                continue
+            elif id_class == 5:
+                self.Right_Corner_X = x_center
+                self.Right_Corner_Y = y_center
+                continue
+            elif id_class == 6:
+                self.Pinalty_X = x_center
+                self.Pinalty_Y = y_center
+                continue
+            elif id_class == 7:
+                self.Ball_X = x_center
+                self.Ball_Y = y_center
+                continue
+            elif id_class == 8:
+                self.Robot_X = x_center
+                self.Robot_Y = y_center
+                continue
+            elif id_class == 9:
+                self.goal_L_pole_X = x_center
+                self.goal_L_pole_Y = y_center
+                continue
+            elif id_class == 10:
+                self.goal_R_pole_X = x_center
+                self.goal_R_pole_Y = y_center
+                continue
+
+            # add additional conditions for each class
+            else:
+                pass # ignore any other classes
+
+    def callbackBallDistance(self, msg):
+        self.ballDis = msg.data
+
+    def timer_callback(self):
+        # Koordinat landmark yang terdeteksi (x,y,z) dalam world coordinate
+        world_points = np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0], [1, 1, 0]])
+
+        # Koordinat landmark yang terdeteksi di frame kamera (x,y)
+        img_points = np.array([[427, 305], [414, 199], [512, 297], [624, 226], [537, 156]])
+
+        homogen_matrix, _ = cv2.findHomography(world_points, img_points)
+
+        # Camera matrix hasil kalibrasi
+        camera_matrix = np.array([[1406.08415449821, 0, 0],
+                                [2.20679787308599, 1417.99930662800, 0],
+                                [1014.13643417416, 566.347754321696, 1]])
+
+        # Menentukan matriks rotasi dan transalasi
+        _, rvec, tvec = cv2.solvePnP(world_points, img_points, camera_matrix, None)
+
+        # Menampilkan hasil
+        print("Homogen matrix:")
+        print(homogen_matrix)
+
+        # Estimasi arah hadap kamera di lapangan
+        print("Rotation matrix:")
+        print(cv2.Rodrigues(rvec)[0])
+
+        # Estimasi posisi kamera di lapangan
+        print("Translation vector:")
+        print(tvec)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = Localization()
+    rclpy.spin(node)
+    rclpy.shutdown()
+if __name__ == '__main__':
+    main()
